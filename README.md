@@ -10,9 +10,9 @@ A production-ready RAG (Retrieval-Augmented Generation) chatbot built with Strea
 - ⚡ **Groq LLaMA 3.3 70B** for fast responses
 - 🎨 **Modern UI** with dark green theme
 
-## 🚀 Live Demo
+## 🚀 STREAMLIT 🚀
 
-[View Live App](https://your-app-name.streamlit.app)
+[View Live App](https://customersupportassistantai.streamlit.app/)
 
 ## 🛠️ Technologies
 
