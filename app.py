@@ -6,10 +6,9 @@ from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_groq import ChatGroq
 from datetime import datetime
-import json
 
 # ============================================================
-# PAGE CONFIGURATION
+# PAGE CONFIGURATION - MUST BE FIRST
 # ============================================================
 st.set_page_config(
     page_title="AI Assistant",
@@ -19,38 +18,60 @@ st.set_page_config(
 )
 
 # ============================================================
-# DARK GREEN THEME CSS (Like Your Image)
+# LOAD ENVIRONMENT VARIABLES
+# ============================================================
+load_dotenv()
+
+# ============================================================
+# INITIALIZE SESSION STATE FIRST
+# ============================================================
+def init_session_state():
+    """Initialize all session state variables"""
+    if "chat_sessions" not in st.session_state:
+        st.session_state.chat_sessions = {}
+    
+    if "current_session_id" not in st.session_state:
+        st.session_state.current_session_id = None
+    
+    if "rag_loaded" not in st.session_state:
+        st.session_state.rag_loaded = False
+    
+    if "doc_count" not in st.session_state:
+        st.session_state.doc_count = 0
+    
+    if "processing" not in st.session_state:
+        st.session_state.processing = False
+
+# Initialize immediately
+init_session_state()
+
+# ============================================================
+# DARK GREEN THEME CSS
 # ============================================================
 st.markdown("""
     <style>
-    /* Main app background - Dark green */
     .stApp {
         background-color: #0a2e1f;
     }
     
-    /* Sidebar styling - Darker green */
     [data-testid="stSidebar"] {
         background-color: #081a11;
         border-right: 1px solid #1a3d2e;
     }
     
-    /* Sidebar header */
     [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 {
         color: #4ade80;
         font-weight: 600;
     }
     
-    /* Sidebar text */
     [data-testid="stSidebar"] p, [data-testid="stSidebar"] label {
         color: #86efac;
     }
     
-    /* Main content text */
     .stMarkdown, p, label, span {
         color: #d1fae5;
     }
     
-    /* Chat messages */
     .stChatMessage {
         background-color: #0f3123;
         border: 1px solid #1a4d35;
@@ -59,19 +80,6 @@ st.markdown("""
         margin: 8px 0;
     }
     
-    /* User message - lighter green */
-    [data-testid="stChatMessageContent"]:has(+ [data-testid="chatAvatarIcon-user"]) {
-        background-color: #16543b;
-        border-left: 3px solid #4ade80;
-    }
-    
-    /* Assistant message - darker */
-    [data-testid="stChatMessageContent"]:has(+ [data-testid="chatAvatarIcon-assistant"]) {
-        background-color: #0a2617;
-        border-left: 3px solid #22c55e;
-    }
-    
-    /* Buttons - Green gradient */
     .stButton>button {
         background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
         color: white;
@@ -89,40 +97,6 @@ st.markdown("""
         transform: translateY(-2px);
     }
     
-    /* Category buttons */
-    .category-btn {
-        background-color: #0f3123;
-        border: 1px solid #22c55e;
-        border-radius: 8px;
-        padding: 12px;
-        margin: 6px 0;
-        cursor: pointer;
-        transition: all 0.3s;
-    }
-    
-    .category-btn:hover {
-        background-color: #16543b;
-        border-color: #4ade80;
-    }
-    
-    /* Chat history items */
-    .chat-history-item {
-        background-color: #0f3123;
-        border: 1px solid #1a4d35;
-        border-radius: 8px;
-        padding: 12px;
-        margin: 6px 0;
-        cursor: pointer;
-        transition: all 0.2s;
-        color: #86efac;
-    }
-    
-    .chat-history-item:hover {
-        background-color: #16543b;
-        border-color: #22c55e;
-    }
-    
-    /* Input box */
     .stChatInput {
         background-color: #0f3123;
         border: 1px solid #22c55e;
@@ -130,15 +104,6 @@ st.markdown("""
         color: #d1fae5;
     }
     
-    /* Expander */
-    .streamlit-expanderHeader {
-        background-color: #0f3123;
-        color: #4ade80;
-        border-radius: 8px;
-        border: 1px solid #1a4d35;
-    }
-    
-    /* Metrics */
     [data-testid="stMetricValue"] {
         color: #4ade80;
         font-size: 20px;
@@ -148,20 +113,18 @@ st.markdown("""
         color: #86efac;
     }
     
-    /* Success/Info boxes */
     .stSuccess {
         background-color: #16543b;
         border: 1px solid #22c55e;
         color: #d1fae5;
     }
     
-    .stInfo {
+    .stInfo, .stWarning {
         background-color: #0f3123;
         border: 1px solid #22c55e;
         color: #d1fae5;
     }
     
-    /* Tabs */
     .stTabs [data-baseweb="tab-list"] {
         background-color: #081a11;
         gap: 8px;
@@ -180,12 +143,10 @@ st.markdown("""
         color: #4ade80;
     }
     
-    /* Headers */
     h1, h2, h3 {
         color: #4ade80;
     }
     
-    /* Divider */
     hr {
         border-color: #1a4d35;
     }
@@ -193,72 +154,49 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ============================================================
-# LOAD ENVIRONMENT
-# ============================================================
-load_dotenv()
-
-# ============================================================
 # CATEGORIZED PROMPTS
 # ============================================================
 PROMPT_CATEGORIES = {
-    "📦 Orders & Tracking": [
+    "📦 Orders": [
         "How can I track my order?",
         "Where is my package?",
         "What's my order status?",
-        "How do I check shipping updates?",
         "When will my order arrive?"
     ],
-    "💳 Payments & Refunds": [
+    "💳 Payments": [
         "What payment methods do you accept?",
         "How do I get a refund?",
         "When will my refund be processed?",
-        "Can I pay with PayPal?",
-        "Is my payment information secure?"
+        "Is my payment secure?"
     ],
-    "🔄 Returns & Exchanges": [
+    "🔄 Returns": [
         "What is your return policy?",
         "How do I return an item?",
-        "Can I exchange for a different size?",
-        "Is return shipping free?",
-        "What items cannot be returned?"
+        "Can I exchange sizes?",
+        "Is return shipping free?"
     ],
-    "🚚 Shipping & Delivery": [
+    "🚚 Shipping": [
         "How long does shipping take?",
         "Do you ship internationally?",
-        "What are the shipping costs?",
-        "Do you offer express shipping?",
-        "Can I change my delivery address?"
+        "What are shipping costs?",
+        "Do you offer express shipping?"
     ],
-    "💰 Discounts & Promotions": [
-        "Are there any discounts available?",
+    "💰 Discounts": [
+        "Any discounts available?",
         "Do you have student discounts?",
         "How do I use a promo code?",
-        "Is there a loyalty program?",
         "When is your next sale?"
     ],
-    "📞 Support & Contact": [
-        "How do I contact customer support?",
+    "📞 Support": [
+        "How do I contact support?",
         "What are your business hours?",
         "Do you have live chat?",
-        "Can I speak to a human agent?",
         "Where is your support email?"
     ]
 }
 
 # ============================================================
-# INITIALIZE SESSION STATE
-# ============================================================
-if "chat_sessions" not in st.session_state:
-    st.session_state.chat_sessions = {}
-    
-if "current_session_id" not in st.session_state:
-    st.session_state.current_session_id = None
-
-if "rag_loaded" not in st.session_state:
-    st.session_state.rag_loaded = False
-
-# ============================================================
-# FUNCTIONS
+# HELPER FUNCTIONS
 # ============================================================
 def create_new_chat():
     """Create a new chat session"""
@@ -273,13 +211,13 @@ def create_new_chat():
 
 def get_current_messages():
     """Get messages for current session"""
-    if st.session_state.current_session_id:
+    if st.session_state.current_session_id and st.session_state.current_session_id in st.session_state.chat_sessions:
         return st.session_state.chat_sessions[st.session_state.current_session_id]["messages"]
     return []
 
 def add_message(role, content):
     """Add message to current session"""
-    if st.session_state.current_session_id:
+    if st.session_state.current_session_id and st.session_state.current_session_id in st.session_state.chat_sessions:
         messages = st.session_state.chat_sessions[st.session_state.current_session_id]["messages"]
         messages.append({"role": role, "content": content})
         
@@ -288,9 +226,38 @@ def add_message(role, content):
             title = content[:40] + "..." if len(content) > 40 else content
             st.session_state.chat_sessions[st.session_state.current_session_id]["title"] = title
 
+@st.cache_resource(show_spinner=False)
+def load_embeddings():
+    """Load embeddings model with caching - MUCH FASTER"""
+    try:
+        embeddings = HuggingFaceEmbeddings(
+            model_name="sentence-transformers/all-MiniLM-L6-v2",
+            model_kwargs={'device': 'cpu'},
+            encode_kwargs={'normalize_embeddings': True}
+        )
+        return embeddings
+    except Exception as e:
+        st.error(f"Error loading embeddings: {e}")
+        return None
+
+@st.cache_resource(show_spinner=False)
+def load_vector_db(_embeddings, csv_path):
+    """Load and cache vector database"""
+    try:
+        loader = CSVLoader(csv_path, encoding="utf-8")
+        docs = loader.load()
+        vector_db = FAISS.from_documents(docs, _embeddings)
+        return vector_db, len(docs)
+    except Exception as e:
+        st.error(f"Error loading knowledge base: {e}")
+        return None, 0
+
 def get_answer(question):
     """Get answer using RAG"""
     try:
+        if not hasattr(st.session_state, 'vector_db') or st.session_state.vector_db is None:
+            return "❌ System not initialized properly. Please refresh the page."
+        
         retriever = st.session_state.vector_db.as_retriever(search_kwargs={"k": 3})
         docs = retriever.invoke(question)
         context = "\n\n".join([d.page_content for d in docs])
@@ -306,41 +273,76 @@ Customer Question: {question}
 
 Answer:"""
         
-        return st.session_state.llm.invoke(prompt).content
+        response = st.session_state.llm.invoke(prompt)
+        return response.content
     except Exception as e:
-        return f"Sorry, I encountered an error: {str(e)}"
+        return f"❌ Sorry, I encountered an error: {str(e)}"
 
 # ============================================================
-# LOAD RAG SYSTEM
+# LOAD RAG SYSTEM - WITH PROPER ERROR HANDLING
 # ============================================================
-if not st.session_state.rag_loaded:
-    with st.spinner("🚀 Loading AI Assistant..."):
-        try:
-            loader = CSVLoader("data/knowledge_base.csv", encoding="utf-8")
-            docs = loader.load()
-            
-            embeddings = HuggingFaceEmbeddings(
-                model_name="sentence-transformers/all-MiniLM-L6-v2"
-            )
-            
-            st.session_state.vector_db = FAISS.from_documents(docs, embeddings)
-            
-            st.session_state.llm = ChatGroq(
-                model="llama-3.3-70b-versatile",
-                temperature=0.3,
-                groq_api_key=os.getenv("GROQ_API_KEY")
-            )
-            
-            st.session_state.rag_loaded = True
-            st.session_state.doc_count = len(docs)
-            
-            # Create first session
-            if not st.session_state.chat_sessions:
-                create_new_chat()
-            
-        except Exception as e:
-            st.error(f"❌ Error loading system: {e}")
+def initialize_rag():
+    """Initialize RAG system with proper error handling"""
+    
+    # Check for GROQ API key
+    groq_key = os.getenv("GROQ_API_KEY")
+    if not groq_key:
+        st.error("❌ **GROQ_API_KEY not found!**")
+        st.info("Please create a `.env` file with: `GROQ_API_KEY=your_key_here`")
+        st.stop()
+    
+    # Check for CSV file
+    csv_path = "data/knowledge_base.csv"
+    if not os.path.exists(csv_path):
+        st.error(f"❌ **Knowledge base not found!**")
+        st.info(f"Please create the file: `{csv_path}`")
+        st.stop()
+    
+    progress_bar = st.progress(0, text="🚀 Initializing AI Assistant...")
+    
+    try:
+        # Step 1: Load embeddings (20%)
+        progress_bar.progress(20, text="📥 Loading embeddings model...")
+        embeddings = load_embeddings()
+        if embeddings is None:
             st.stop()
+        
+        # Step 2: Load vector database (60%)
+        progress_bar.progress(60, text="📚 Loading knowledge base...")
+        vector_db, doc_count = load_vector_db(embeddings, csv_path)
+        if vector_db is None:
+            st.stop()
+        
+        # Step 3: Initialize LLM (80%)
+        progress_bar.progress(80, text="🤖 Connecting to AI model...")
+        llm = ChatGroq(
+            model="llama-3.3-70b-versatile",
+            temperature=0.3,
+            groq_api_key=groq_key
+        )
+        
+        # Step 4: Save to session state (100%)
+        progress_bar.progress(100, text="✅ Ready!")
+        st.session_state.vector_db = vector_db
+        st.session_state.llm = llm
+        st.session_state.doc_count = doc_count
+        st.session_state.rag_loaded = True
+        
+        # Create first session if none exists
+        if not st.session_state.chat_sessions:
+            create_new_chat()
+        
+        progress_bar.empty()
+        
+    except Exception as e:
+        progress_bar.empty()
+        st.error(f"❌ **Initialization Error:** {str(e)}")
+        st.info("Common fixes:\n- Check your GROQ_API_KEY\n- Ensure knowledge_base.csv exists\n- Check internet connection")
+        st.stop()
+
+# Initialize RAG if not loaded
+if not st.session_state.rag_loaded:
+    initialize_rag()
 
 # ============================================================
 # SIDEBAR - CHAT HISTORY & CATEGORIES
@@ -380,32 +382,40 @@ with st.sidebar:
                         else:
                             create_new_chat()
                     st.rerun()
+    else:
+        st.info("No chat history yet")
     
     st.markdown("---")
     
-    # Prompt Categories
+    # Prompt Categories - SIMPLIFIED (no tabs to avoid complexity)
     st.markdown("### 📂 Quick Prompts")
     
-    tabs = st.tabs([cat.split(" ")[0] for cat in PROMPT_CATEGORIES.keys()])
+    selected_category = st.selectbox(
+        "Choose category:",
+        list(PROMPT_CATEGORIES.keys()),
+        label_visibility="collapsed"
+    )
     
-    for idx, (category, prompts) in enumerate(PROMPT_CATEGORIES.items()):
-        with tabs[idx]:
-            st.markdown(f"**{category}**")
-            for prompt in prompts:
-                if st.button(f"• {prompt}", key=f"prompt_{category}_{prompt}", use_container_width=True):
-                    if not st.session_state.current_session_id:
-                        create_new_chat()
-                    
-                    add_message("user", prompt)
-                    with st.spinner("Thinking..."):
-                        answer = get_answer(prompt)
-                        add_message("assistant", answer)
-                    st.rerun()
+    if selected_category:
+        for prompt in PROMPT_CATEGORIES[selected_category]:
+            if st.button(prompt, key=f"prompt_{prompt[:20]}", use_container_width=True):
+                if not st.session_state.current_session_id:
+                    create_new_chat()
+                
+                # Add user message
+                add_message("user", prompt)
+                
+                # Get answer
+                with st.spinner("🤔 Thinking..."):
+                    answer = get_answer(prompt)
+                    add_message("assistant", answer)
+                
+                st.rerun()
     
     st.markdown("---")
     
     # System Status
-    st.markdown("### ⚡ System")
+    st.markdown("### ⚡ System Status")
     col1, col2 = st.columns(2)
     with col1:
         st.metric("📚 Docs", f"{st.session_state.doc_count:,}")
@@ -416,14 +426,13 @@ with st.sidebar:
 # ============================================================
 # MAIN CHAT INTERFACE
 # ============================================================
-# Header
 st.markdown("## 🤖 AI Customer Support Assistant")
 
 if st.session_state.current_session_id:
     current_session = st.session_state.chat_sessions[st.session_state.current_session_id]
-    st.caption(f"Chat started at {current_session['created']}")
+    st.caption(f"💬 Chat started at {current_session['created']}")
 else:
-    st.info("👈 Click 'New Chat' to start a conversation")
+    st.info("👈 Click 'New Chat' to start")
     st.stop()
 
 st.markdown("---")
@@ -445,23 +454,34 @@ if not messages:
     
     **Choose a quick prompt from the sidebar or type your question below!**
     """)
+else:
+    for msg in messages:
+        with st.chat_message(msg["role"], avatar="🤖" if msg["role"] == "assistant" else "👤"):
+            st.markdown(msg["content"])
 
-for msg in messages:
-    with st.chat_message(msg["role"], avatar="🤖" if msg["role"] == "assistant" else "👤"):
-        st.markdown(msg["content"])
-
-# Chat input
-if prompt := st.chat_input("💬 Ask me anything...", key="chat_input"):
-    add_message("user", prompt)
+# Chat input - FIXED TO PREVENT CRASHES
+if not st.session_state.processing:
+    user_input = st.chat_input("💬 Ask me anything...", key="chat_input")
     
-    with st.chat_message("user", avatar="👤"):
-        st.markdown(prompt)
-    
-    with st.chat_message("assistant", avatar="🤖"):
-        with st.spinner("Thinking..."):
-            answer = get_answer(prompt)
-            st.markdown(answer)
-            add_message("assistant", answer)
+    if user_input:
+        st.session_state.processing = True
+        
+        # Add user message
+        add_message("user", user_input)
+        
+        # Display user message immediately
+        with st.chat_message("user", avatar="👤"):
+            st.markdown(user_input)
+        
+        # Get and display assistant response
+        with st.chat_message("assistant", avatar="🤖"):
+            with st.spinner("🤔 Thinking..."):
+                answer = get_answer(user_input)
+                st.markdown(answer)
+                add_message("assistant", answer)
+        
+        st.session_state.processing = False
+        st.rerun()
 
 # ============================================================
 # FOOTER
