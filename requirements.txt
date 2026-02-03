@@ -5,3 +5,4 @@ langchain-groq
 langchain-huggingface
 sentence-transformers
 faiss-cpu
+tiktoken
